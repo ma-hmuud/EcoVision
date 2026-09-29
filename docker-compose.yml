@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ecovision-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ecovision
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ecovision"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ai:
+    build:
+      context: ./apps/ai
+      dockerfile: Dockerfile
+    container_name: ecovision-ai
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - USE_YOLO=false
+      - MODEL_PATH=models/waste_detector.pt
+
+  api:
+    build:
+      context: .
+      dockerfile: ./apps/api/Dockerfile
+    container_name: ecovision-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai:
+        condition: service_started
+    environment:
+      - PORT=5000
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ecovision
+      - BETTER_AUTH_SECRET=ecovision-super-secret-key-32chars-min-change-in-prod
+      - BETTER_AUTH_URL=http://localhost:5000
+      - GOOGLE_CLIENT_ID=your-google-client-id
+      - GOOGLE_CLIENT_SECRET=your-google-client-secret
+      - FRONTEND_URL=http://localhost:3000
+      - AI_SERVICE_URL=http://ai:8000
+      - SUPABASE_URL=
+      - SUPABASE_SERVICE_ROLE_KEY=
+      - SUPABASE_STORAGE_BUCKET=ecovision-images
+
+  web:
+    build:
+      context: .
+      dockerfile: ./apps/web/Dockerfile
+    container_name: ecovision-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    environment:
+      - PORT=3000
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+
+volumes:
+  postgres_data:
